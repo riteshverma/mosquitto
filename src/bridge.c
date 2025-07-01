@@ -119,6 +119,46 @@ int bridge__new(struct mosquitto__bridge *bridge)
 #endif
 #endif
 
+	// Set HTTP proxy settings for the bridge context
+	if(bridge->http_proxy_host && bridge->http_proxy_host[0] != '\0' && bridge->http_proxy_port > 0){
+		mosquitto__free(new_context->proxy.host); // Free if previously allocated (e.g. context reuse)
+		new_context->proxy.host = mosquitto__strdup(bridge->http_proxy_host);
+		if(!new_context->proxy.host){
+			// Handle memory allocation failure
+			// This might involve cleaning up new_context if it was just created
+			// For now, log and potentially return error if critical
+			log__printf(NULL, MOSQ_LOG_ERR, "Error: Out of memory copying bridge proxy host.");
+			// Depending on how context__init and HASH_FIND work, cleanup might be complex here.
+			// Simplest is to let it fail to connect.
+		}
+		new_context->proxy.port = bridge->http_proxy_port;
+
+		mosquitto__free(new_context->proxy.auth_header);
+		new_context->proxy.auth_header = NULL;
+		if(bridge->http_proxy_auth_value && bridge->http_proxy_auth_value[0] != '\0'){
+			const char *prefix = "Proxy-Authorization: ";
+			const char *suffix = "\r\n";
+			size_t len = strlen(prefix) + strlen(bridge->http_proxy_auth_value) + strlen(suffix) + 1;
+			new_context->proxy.auth_header = (char *)mosquitto__malloc(len);
+			if(new_context->proxy.auth_header){
+				snprintf(new_context->proxy.auth_header, len, "%s%s%s", prefix, bridge->http_proxy_auth_value, suffix);
+			}else{
+				log__printf(NULL, MOSQ_LOG_ERR, "Error: Out of memory for bridge proxy auth header.");
+				// Potentially free new_context->proxy.host if auth header fails
+				mosquitto__free(new_context->proxy.host);
+				new_context->proxy.host = NULL;
+			}
+		}
+		log__printf(NULL, MOSQ_LOG_INFO, "Bridge %s configured to use HTTP proxy %s:%d", bridge->name, new_context->proxy.host, new_context->proxy.port);
+	}else{
+		// Ensure proxy fields are clear if not configured for this bridge
+		mosquitto__free(new_context->proxy.host);
+		new_context->proxy.host = NULL;
+		new_context->proxy.port = 0;
+		mosquitto__free(new_context->proxy.auth_header);
+		new_context->proxy.auth_header = NULL;
+	}
+
 	bridge->try_private_accepted = true;
 	if(bridge->clean_start_local == -1){
 		/* default to "regular" clean start setting */

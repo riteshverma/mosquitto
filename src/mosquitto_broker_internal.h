@@ -560,6 +560,10 @@ struct mosquitto__bridge{
 	char *tls_psk;
 #  endif
 #endif
+	// HTTP Proxy settings for the bridge connection
+	char *http_proxy_host;
+	int http_proxy_port;
+	char *http_proxy_auth_value; // e.g., "Basic <base64>"
 };
 
 #ifdef WITH_WEBSOCKETS

@@ -2137,6 +2137,43 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 #else
 					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Bridge support not available.");
 #endif
+				}else if(!strcmp(token, "bridge_http_proxy_host")){
+#ifdef WITH_BRIDGE
+					if(reload) continue; /* Proxy settings for bridges not typically reloaded */
+					if(!cur_bridge){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge configuration (bridge_http_proxy_host without 'connection' context).");
+						return MOSQ_ERR_INVAL;
+					}
+					if(conf__parse_string(&token, "bridge_http_proxy_host", &cur_bridge->http_proxy_host, saveptr)) return MOSQ_ERR_INVAL;
+#else
+					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Bridge support not available (for bridge_http_proxy_host).");
+#endif
+				}else if(!strcmp(token, "bridge_http_proxy_port")){
+#ifdef WITH_BRIDGE
+					if(reload) continue;
+					if(!cur_bridge){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge configuration (bridge_http_proxy_port without 'connection' context).");
+						return MOSQ_ERR_INVAL;
+					}
+					if(conf__parse_int(&token, "bridge_http_proxy_port", &cur_bridge->http_proxy_port, saveptr)) return MOSQ_ERR_INVAL;
+					if(cur_bridge->http_proxy_port <= 0 || cur_bridge->http_proxy_port > 65535){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge_http_proxy_port value (%d). Port must be between 1 and 65535.", cur_bridge->http_proxy_port);
+						return MOSQ_ERR_INVAL;
+					}
+#else
+					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Bridge support not available (for bridge_http_proxy_port).");
+#endif
+				}else if(!strcmp(token, "bridge_http_proxy_auth_value")){
+#ifdef WITH_BRIDGE
+					if(reload) continue;
+					if(!cur_bridge){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge configuration (bridge_http_proxy_auth_value without 'connection' context).");
+						return MOSQ_ERR_INVAL;
+					}
+					if(conf__parse_string(&token, "bridge_http_proxy_auth_value", &cur_bridge->http_proxy_auth_value, saveptr)) return MOSQ_ERR_INVAL;
+#else
+					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Bridge support not available (for bridge_http_proxy_auth_value).");
+#endif
 				}else if(!strcmp(token, "upgrade_outgoing_qos")){
 					if(conf__parse_bool(&token, token, &config->upgrade_outgoing_qos, saveptr)) return MOSQ_ERR_INVAL;
 				}else if(!strcmp(token, "use_identity_as_username")){
