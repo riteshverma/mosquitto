@@ -347,6 +347,12 @@ struct mosquitto {
 	uint8_t retain_available;
 	bool tcp_nodelay;
 
+	struct {
+		char *host;
+		int port;
+		char *auth_header; /* e.g., "Proxy-Authorization: Basic dXNlcjpwYXNz\r\n" */
+	} proxy;
+
 #ifdef WITH_BROKER
 	UT_hash_handle hh_id;
 	UT_hash_handle hh_sock;

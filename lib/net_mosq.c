@@ -77,6 +77,9 @@ Contributors:
 #include "time_mosq.h"
 #include "util_mosq.h"
 
+// Forward declaration for the proxy connect helper
+int net__proxy_connect(struct mosquitto *mosq, const char *dest_host, int dest_port);
+
 #ifdef WITH_TLS
 int tls_ex_index_mosq = -1;
 UI_METHOD *_ui_method = NULL;
@@ -931,11 +934,46 @@ int net__socket_connect(struct mosquitto *mosq, const char *host, uint16_t port,
 		}
 	}
 
+	// HTTP CONNECT proxy support
+	// This logic assumes that if mosq->proxy.host is configured, then the 'host' and 'port'
+	// parameters to this function are the proxy's host and port.
+	// The actual destination MQTT broker is in mosq->host and mosq->port.
+	if(mosq->proxy.host && mosq->proxy.host[0] != '\0' && mosq->proxy.port > 0) {
+		// Defensive check: ensure current connection parameters match the configured proxy
+		if (strcmp(mosq->proxy.host, host) == 0 && mosq->proxy.port == port) {
+			log__printf(mosq, MOSQ_LOG_INFO, "Attempting HTTP CONNECT via proxy %s:%d to %s:%d",
+						host, port, mosq->host, mosq->port);
+
+			// Call net__proxy_connect with the *final* destination (mosq->host, mosq->port)
+			rc2 = net__proxy_connect(mosq, mosq->host, mosq->port);
+			if(rc2 != MOSQ_ERR_SUCCESS){
+				net__socket_close(mosq);
+				return rc2; // Return specific proxy error
+			}
+			log__printf(mosq, MOSQ_LOG_INFO, "Proxy CONNECT successful. Proceeding with MQTT connection over proxy.");
+		} else {
+			// This implies a configuration issue or an unexpected state.
+			// If proxy is configured, we should be connecting to the proxy.
+			log__printf(mosq, MOSQ_LOG_ERR, "Proxy misconfiguration or unexpected connect call: "
+						"Proxy is %s:%d, but attempting to connect to %s:%d directly.",
+						mosq->proxy.host, mosq->proxy.port, host, port);
+			net__socket_close(mosq);
+			return MOSQ_ERR_PROXY; // Indicate a proxy related error
+		}
+	}
+
+	// The 'host' parameter for net__socket_connect_step3 (TLS SNI) must be the final destination,
+	// which is stored in mosq->host.
+	const char *sni_host = mosq->host;
+
 #if defined(WITH_SOCKS) && !defined(WITH_BROKER)
+	// If SOCKS is enabled, SOCKS handshake happens before this.
+	// This block is for non-SOCKS or post-SOCKS TLS setup.
+	// We assume HTTP proxy and SOCKS are mutually exclusive.
 	if(!mosq->socks5_host)
 #endif
 	{
-		rc2 = net__socket_connect_step3(mosq, host);
+		rc2 = net__socket_connect_step3(mosq, sni_host);
 		if(rc2) return rc2;
 	}
 

@@ -2279,6 +2279,27 @@ libmosq_EXPORT void mosquitto_log_callback_set(struct mosquitto *mosq, void (*on
  */
 libmosq_EXPORT int mosquitto_socks5_set(struct mosquitto *mosq, const char *host, int port, const char *username, const char *password);
 
+/*
+ * Function: mosquitto_proxy_set
+ *
+ * Configure the client to use an HTTP proxy when connecting. Must be called
+ * before connecting.
+ *
+ * Parameters:
+ *   mosq - a valid mosquitto instance.
+ *   host - the HTTP proxy host to connect to.
+ *   port - the HTTP proxy port to use.
+ *   auth_value - (optional) The value for the Proxy-Authorization header.
+ *                 For example, "Basic dXNlcjpwYXNzd29yZA==".
+ *                 If NULL, no Proxy-Authorization header will be sent.
+ *
+ * Returns:
+ *   MOSQ_ERR_SUCCESS - on success
+ *   MOSQ_ERR_INVAL   - if the input parameters are invalid.
+ *   MOSQ_ERR_NOMEM   - if out of memory.
+ */
+libmosq_EXPORT int mosquitto_proxy_set(struct mosquitto *mosq, const char *host, int port, const char *auth_value);
+
 
 /* =============================================================================
  *

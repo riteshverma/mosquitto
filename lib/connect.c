@@ -199,9 +199,15 @@ static int mosquitto__reconnect(struct mosquitto *mosq, bool blocking)
 #ifdef WITH_SOCKS
 	if(mosq->socks5_host){
 		rc = net__socket_connect(mosq, mosq->socks5_host, mosq->socks5_port, mosq->bind_address, blocking);
+	}else if(mosq->proxy.host && mosq->proxy.host[0] != '\0' && mosq->proxy.port > 0){
+		// HTTP Proxy is configured, connect to the proxy server
+		log__printf(mosq, MOSQ_LOG_INFO, "Connecting to HTTP proxy %s:%d for MQTT broker %s:%d",
+				mosq->proxy.host, mosq->proxy.port, mosq->host, mosq->port);
+		rc = net__socket_connect(mosq, mosq->proxy.host, mosq->proxy.port, mosq->bind_address, blocking);
 	}else
 #endif
 	{
+		// No SOCKS, no HTTP proxy, connect directly to the MQTT broker
 		rc = net__socket_connect(mosq, mosq->host, mosq->port, mosq->bind_address, blocking);
 	}
 	if(rc>0){
