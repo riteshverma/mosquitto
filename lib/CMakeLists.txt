@@ -37,7 +37,7 @@ set(C_SRC
 	mosquitto.c ../include/mosquitto.h
 	mosquitto_internal.h
 	../include/mqtt_protocol.h
-	net_mosq_ocsp.c net_mosq.c net_mosq.h
+	net_mosq_ocsp.c net_mosq.c net_mosq_proxy.c net_mosq.h
 	options.c
 	packet_datatypes.c
 	packet_mosq.c packet_mosq.h
