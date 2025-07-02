@@ -76,6 +76,9 @@ Contributors:
 #include "net_mosq.h"
 #include "time_mosq.h"
 #include "util_mosq.h"
+#ifdef WITH_TLS
+#include <openssl/evp.h> // For Base64 encoding
+#endif
 
 // Forward declaration for the proxy connect helper
 int net__proxy_connect(struct mosquitto *mosq, const char *dest_host, int dest_port);
@@ -924,8 +927,115 @@ int net__socket_connect(struct mosquitto *mosq, const char *host, uint16_t port,
 
 	if(!mosq || !host) return MOSQ_ERR_INVAL;
 
-	rc = net__try_connect(host, port, &mosq->sock, bind_address, blocking);
-	if(rc > 0) return rc;
+#ifdef WITH_BROKER // Global config is in db.config which is broker specific
+	// Check and apply global proxy settings if no bridge-specific proxy is already set
+	if (db.config && db.config->proxy_host && db.config->proxy_host[0] != '\0' && db.config->proxy_port > 0) {
+		if (!mosq->proxy.host || mosq->proxy.host[0] == '\0') { // No bridge proxy, so use global
+			// Free existing proxy settings in mosq->proxy if they were somehow set
+			mosquitto__free(mosq->proxy.host);
+			mosquitto__free(mosq->proxy.auth_header);
+
+			mosq->proxy.host = mosquitto__strdup(db.config->proxy_host);
+			mosq->proxy.port = db.config->proxy_port;
+			mosq->proxy.auth_header = NULL; // Initialize
+
+			if (mosq->proxy.host == NULL) { // strdup failed
+				log__printf(mosq, MOSQ_LOG_ERR, "Error: Out of memory for proxy host.");
+				return MOSQ_ERR_NOMEM;
+			}
+
+			if (db.config->proxy_username && db.config->proxy_username[0] != '\0' &&
+			    db.config->proxy_password) { // Password can be an empty string
+
+				char *credentials = NULL;
+				unsigned char *encoded_credentials_raw = NULL; // EVP_EncodeBlock output
+				char *encoded_credentials_str = NULL; // Null-terminated string version
+				size_t cred_len;
+				int encoded_len_raw;
+
+				cred_len = strlen(db.config->proxy_username) + 1 + strlen(db.config->proxy_password);
+				credentials = mosquitto__malloc(cred_len + 1);
+				if (credentials) {
+					snprintf(credentials, cred_len + 1, "%s:%s", db.config->proxy_username, db.config->proxy_password);
+
+					// Max Base64 output length: ((input_len + 2) / 3) * 4
+					size_t max_encoded_buf_size = ((cred_len + 2) / 3) * 4;
+					encoded_credentials_raw = mosquitto__malloc(max_encoded_buf_size + 1); // +1 for potential null terminator by EVP_EncodeBlock, though we add our own
+
+					if (encoded_credentials_raw) {
+#ifdef WITH_TLS // EVP_EncodeBlock is part of OpenSSL
+						encoded_len_raw = EVP_EncodeBlock(encoded_credentials_raw, (const unsigned char *)credentials, cred_len);
+						if (encoded_len_raw > 0 && (size_t)encoded_len_raw <= max_encoded_buf_size) {
+							// Ensure null termination for safety, though EVP_EncodeBlock might do it.
+							encoded_credentials_raw[encoded_len_raw] = '\0';
+
+							// Some base64 encoders might include newlines, remove them if present for HTTP header
+							char *p = (char *)encoded_credentials_raw;
+							char *writer = p;
+							while(*p){
+								if(*p != '\n' && *p != '\r'){
+									*writer++ = *p;
+								}
+								p++;
+							}
+							*writer = '\0';
+							encoded_credentials_str = (char*)encoded_credentials_raw;
+
+
+							size_t auth_header_len = strlen("Proxy-Authorization: Basic ") + strlen(encoded_credentials_str) + strlen("\r\n") + 1;
+							mosq->proxy.auth_header = mosquitto__malloc(auth_header_len);
+							if(mosq->proxy.auth_header){
+								snprintf(mosq->proxy.auth_header, auth_header_len, "Proxy-Authorization: Basic %s\r\n", encoded_credentials_str);
+							} else {
+								log__printf(mosq, MOSQ_LOG_ERR, "Error: Out of memory for proxy auth header.");
+								// continue without auth header or return error? For now, continue.
+							}
+						} else {
+							log__printf(mosq, MOSQ_LOG_WARNING, "Warning: Base64 encoding for proxy credentials failed.");
+						}
+#else
+						log__printf(mosq, MOSQ_LOG_WARNING, "Warning: Proxy authentication configured but OpenSSL (for Base64) not available.");
+#endif
+						mosquitto__free(encoded_credentials_raw); // Free raw buffer, string is either it or a copy
+					}
+					mosquitto__free(credentials);
+				}
+			}
+		}
+	}
+#endif
+
+	// Determine the actual host and port to connect to.
+	// If mosq->proxy.host is set (either by bridge or global config), connect to proxy.
+	// Otherwise, connect to the original host/port arguments.
+	const char *connect_host;
+	uint16_t connect_port;
+
+	if (mosq->proxy.host && mosq->proxy.host[0] != '\0' && mosq->proxy.port > 0) {
+		connect_host = mosq->proxy.host;
+		connect_port = mosq->proxy.port;
+		log__printf(mosq, MOSQ_LOG_INFO, "Attempting to connect to proxy: %s:%d for target %s:%d", connect_host, connect_port, host, port);
+	} else {
+		connect_host = host;
+		connect_port = port;
+	}
+
+	rc = net__try_connect(connect_host, connect_port, &mosq->sock, bind_address, blocking);
+	if(rc > 0) {
+		// If connection failed, and we used global proxy settings, clean them up from mosq->proxy
+		// only if they were strdup'd from db.config (this check is imperfect but a heuristic)
+#ifdef WITH_BROKER
+		if (db.config && db.config->proxy_host && mosq->proxy.host && strcmp(mosq->proxy.host, db.config->proxy_host) == 0) {
+			// This suggests mosq->proxy.host was set from global config
+			mosquitto__free(mosq->proxy.host);
+			mosq->proxy.host = NULL;
+			mosquitto__free(mosq->proxy.auth_header);
+			mosq->proxy.auth_header = NULL;
+			mosq->proxy.port = 0;
+		}
+#endif
+		return rc;
+	}
 
 	if(mosq->tcp_nodelay){
 		int flag = 1;

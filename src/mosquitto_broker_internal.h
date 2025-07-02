@@ -305,6 +305,13 @@ struct mosquitto__config {
 	int bridge_count;
 #endif
 	struct mosquitto__security_options security_options;
+
+	/* Global proxy settings */
+	char *proxy_host;
+	int proxy_port;
+	char *proxy_username;
+	char *proxy_password;
+	char *proxy_auth_header; /* Pre-computed Proxy-Authorization header */
 };
 
 

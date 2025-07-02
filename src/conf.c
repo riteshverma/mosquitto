@@ -206,6 +206,17 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->sys_interval = 10;
 	config->upgrade_outgoing_qos = false;
 
+	/* Global proxy settings */
+	mosquitto__free(config->proxy_host);
+	config->proxy_host = NULL;
+	config->proxy_port = 0;
+	mosquitto__free(config->proxy_username);
+	config->proxy_username = NULL;
+	mosquitto__free(config->proxy_password);
+	config->proxy_password = NULL;
+	mosquitto__free(config->proxy_auth_header);
+	config->proxy_auth_header = NULL;
+
 	config__cleanup_plugins(config);
 }
 
@@ -265,6 +276,13 @@ void config__cleanup(struct mosquitto__config *config)
 	mosquitto__free(config->pid_file);
 	mosquitto__free(config->user);
 	mosquitto__free(config->log_timestamp_format);
+
+	/* Global proxy settings */
+	mosquitto__free(config->proxy_host);
+	mosquitto__free(config->proxy_username);
+	mosquitto__free(config->proxy_password);
+	mosquitto__free(config->proxy_auth_header);
+
 	if(config->listeners){
 		for(i=0; i<config->listener_count; i++){
 			mosquitto__free(config->listeners[i].host);
@@ -1878,6 +1896,30 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 #endif
 				}else if(!strcmp(token, "queue_qos0_messages")){
 					if(conf__parse_bool(&token, token, &config->queue_qos0_messages, saveptr)) return MOSQ_ERR_INVAL;
+				}else if(!strcmp(token, "proxy_host")){
+					if(reload){ /* Global proxy settings can be reloaded */
+						mosquitto__free(config->proxy_host);
+						config->proxy_host = NULL;
+					}
+					if(conf__parse_string(&token, "proxy_host", &config->proxy_host, saveptr)) return MOSQ_ERR_INVAL;
+				}else if(!strcmp(token, "proxy_port")){
+					if(conf__parse_int(&token, "proxy_port", &config->proxy_port, saveptr)) return MOSQ_ERR_INVAL;
+					if(config->proxy_port <= 0 || config->proxy_port > 65535){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid proxy_port value (%d). Port must be between 1 and 65535.", config->proxy_port);
+						return MOSQ_ERR_INVAL;
+					}
+				}else if(!strcmp(token, "proxy_username")){
+					if(reload){
+						mosquitto__free(config->proxy_username);
+						config->proxy_username = NULL;
+					}
+					if(conf__parse_string(&token, "proxy_username", &config->proxy_username, saveptr)) return MOSQ_ERR_INVAL;
+				}else if(!strcmp(token, "proxy_password")){
+					if(reload){
+						mosquitto__free(config->proxy_password);
+						config->proxy_password = NULL;
+					}
+					if(conf__parse_string(&token, "proxy_password", &config->proxy_password, saveptr)) return MOSQ_ERR_INVAL;
 				}else if(!strcmp(token, "require_certificate")){
 #ifdef WITH_TLS
 					if(reload) continue; /* Listeners not valid for reloading. */
